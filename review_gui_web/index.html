@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DY · 라벨 검수</title><link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="brand-mark">DY</span><div><strong>라벨 검수</strong><small>Segmentation & Detection</small></div></div>
+    <div id="progress">데이터를 불러오는 중…</div>
+    <a class="button quiet" href="/api/export" download>검수 현황 CSV ↓</a>
+    <button id="refresh" class="quiet" title="다른 창에서 변경한 상태도 다시 읽습니다">목록 새로고침</button>
+  </header>
+  <main>
+    <aside class="frames-pane">
+      <div class="pane-heading"><strong>프레임</strong><span id="filterCount"></span></div>
+      <input id="search" placeholder="파일명 · 시퀀스 검색" aria-label="프레임 검색">
+      <div class="row"><select id="splitFilter" aria-label="분할 필터"><option value="">모든 분할</option value="train">Train</option><option value="test">Test</option></select>
+      <select id="statusFilter" aria-label="검수 상태 필터"><option value="">모든 상태</option><option value="pending">검수 대기</option><option value="approved">승인 완료</option><option value="rejected">제외</option></select></div>
+      <select id="sequenceFilter" aria-label="시퀀스 필터"><option value="">모든 시퀀스</option></select>
+      <select id="sortOrder" aria-label="프레임 정렬"><option value="name">파일 순서</option><option value="uncertain">불확실 영역 많은 순</option><option value="empty">검출 없는 프레임 우선</option></select>
+      <p class="help selection-help">첫 프레임 클릭 → Shift+클릭으로 범위 선택<br>Ctrl / ⌘+클릭으로 개별 추가·해제</p>
+      <div class="row selection-bar"><span id="selectionCount" aria-live="polite">0장 선택</span><button id="clearSelection" class="quiet">선택 해제</button></div>
+      <button id="rejectSelected" class="danger" disabled>선택한 프레임 학습에서 제외</button>
+      <p id="selectionHint" class="help selection-help"></p>
+      <div id="frameList" role="listbox" aria-multiselectable="true" aria-label="프레임 목록"></div>
+      <div class="list-pagination"><button id="listPrev">‹</button><span id="listPage"></span><button id="listNext">›</button></div>
+      <div class="legend"><span class="dot pending"></span> 대기 <span class="dot approved"></span> 승인 <span class="dot rejected"></span> 제외</div>
+    </aside>
+
+    <section class="workspace">
+      <div class="frame-heading"><div><strong id="frameName">프레임 선택</strong><small id="frameDetail"></small></div><span id="dirtyBadge" class="badge">저장됨</span><span id="statusBadge" class="badge">—</span></div>
+      <div class="toolbar" aria-label="편집 도구">
+        <div class="tool-group">
+          <button data-tool="select" class="active" title="박스 선택 · 이동 · 크기 조절 (V)">↖ 선택</button>
+          <button data-tool="box" title="드래그하여 박스 추가 (B)">□ 박스</button>
+          <button data-tool="brush" title="드래그하여 마스크 칠하기 (R)">● 브러시</button>
+          <button data-tool="polygon" title="클릭으로 꼭짓점 추가, Enter로 채우기 (P)">⬡ 다각형</button>
+          <button data-tool="sam" title="포함점과 제외점으로 SAM 분할 (G)">✦ SAM</button>
+          <button data-tool="pan" title="화면 이동 (H 또는 Space+드래그)">✥ 이동</button>
+        </div>
+        <div class="tool-group"><button id="undo" title="실행 취소 (Ctrl+Z)">↶</button><button id="redo" title="다시 실행 (Ctrl+Shift+Z)">↷</button></div>
+        <button id="fit" title="이미지 전체 보기 (F)">화면 맞춤</button><span id="zoomLabel">100%</span>
+      </div>
+      <div class="display-bar">
+        <label><input type="checkbox" id="showMask" checked> 마스크</label>
+        <label><input type="checkbox" id="showBoxes" checked> 박스</label>
+        <label class="opacity-label">투명도 <input type="range" id="opacity" min="0" max="100" value="38"></label>
+        <label><input type="checkbox" id="showNir"> NIR 보기</label>
+        <span id="maskStats"></span>
+      </div>
+      <div id="canvasWrap"><canvas id="editor" tabindex="0" aria-label="라벨 편집 캔버스"></canvas><div id="loading">불러오는 중…</div></div>
+      <div class="canvas-footer"><span id="toolHint">선택 도구로 박스를 이동하고 모서리를 드래그해 크기를 조절합니다.</span><span id="coordinates"></span></div>
+      <div class="navigation"><button id="previous" title="이전 프레임 (A)">← 이전</button><span id="framePosition"></span><button id="next" title="다음 프레임 (D)">다음 →</button><div class="spacer"></div><button id="saveDraft" title="수정 결과를 검수 대기로 저장">임시 저장</button><button id="approve" class="primary" title="수정 결과를 저장하고 학습 사용 승인 (Ctrl+S)">저장 · 승인</button><button id="approveNext" class="primary" title="저장하고 승인한 다음 다음 프레임으로 이동 (Ctrl+Enter)">승인 후 다음 →</button></div>
+    </section>
+
+    <aside class="inspector">
+      <section><h2>Segmentation</h2><p class="muted">도로 / 비도로 이진 마스크</p>
+        <div class="mask-values"><button data-mask="1" class="active"><i class="road-swatch"></i>도로 <kbd>1</kbd></button><button data-mask="0"><i class="background-swatch"></i>비도로 <kbd>2</kbd></button><button data-mask="255"><i class="ignore-swatch"></i>불확실 <kbd>3</kbd></button></div>
+        <label class="field">브러시 지름 <span id="brushSizeLabel">24 px</span><input type="range" id="brushSize" min="1" max="160" value="24"></label>
+        <div class="row"><button id="finishPolygon">다각형 채우기</button><button id="cancelPolygon" class="quiet">취소</button></div>
+        <p class="help">비도로로 칠하면 도로 영역을 지웁니다.<br>다각형: 클릭 → Enter 또는 더블클릭.<br>Esc: 진행 중인 작업 취소</p>
+      </section>
+      <section class="sam-section"><h2>SAM 영역 선택</h2>
+        <div class="row"><button id="samPositive" class="active">+ 포함점</button><button id="samNegative">− 제외점</button></div>
+        <p id="samPointCount" class="help">포함 0 · 제외 0</p>
+        <div class="row"><button id="samUndoPoint">마지막 점 취소</button><button id="samClear">점 초기화</button></div>
+        <button id="samRun" class="full">SAM 미리보기 생성</button>
+        <label class="field">적용 방식<select id="samMode"><option value="add">도로에 추가</option><option value="erase">도로에서 지우기</option><option value="replace">도로 전체 교체</option></select></label>
+        <div class="row"><button id="samApply" class="primary">미리보기 적용</button><button id="samDiscard">미리보기 취소</button></div>
+        <p id="samStatus" class="help" aria-live="polite"></p>
+        <p class="help">SAM 도구에서 클릭으로 점을 찍으세요.<br>우클릭: 제외점 · Shift+클릭: 가까운 점 삭제<br>파란색은 적용 후 도로 미리보기입니다.<br>적용 → Ctrl+S로 저장 · 승인합니다.</p>
+      </section>
+      <section><h2>Bounding boxes <span id="boxCount">0</span></h2>
+        <label class="field">추가 / 선택한 박스 클래스<select id="boxClass"></select></label>
+        <div id="boxList" aria-label="박스 목록"></div>
+        <div class="box-coords"><label>X1<input id="x1" type="number" step="1" min="0"></label><label>Y1<input id="y1" type="number" step="1" min="0"></label><label>X2<input id="x2" type="number" step="1" min="0"></label><label>Y2<input id="y2" type="number" step="1" min="0"></label></div>
+        <div class="row"><button id="applyBox">좌표 적용</button><button id="deleteBox" class="danger" title="선택한 박스 삭제 (Delete)">박스 삭제</button></div>
+      </section>
+      <section><h2>검수 메모</h2><textarea id="note" rows="3" maxlength="4000" placeholder="누락, 가림, 판단이 어려운 부분…"></textarea><button id="reject" class="danger full">저장 · 학습에서 제외</button><p class="help">승인된 프레임은 기본 학습 로더에 포함됩니다. 저장 전 파일은 자동 백업됩니다.</p></section>
+      <details><summary>단축키</summary><p class="help">V 선택 · B 박스 · R 브러시 · P 다각형<br>G SAM · H 이동 · Space+드래그 화면 이동<br>휠 확대/축소 · F 화면 맞춤<br>[ / ] 브러시 크기 · Delete 박스 삭제<br>A / D 이전·다음 · Ctrl+S 저장 · 승인<br>Ctrl+Enter 승인 후 다음<br>Ctrl+Z 취소 · Ctrl+Shift+Z 다시 실행</p></details>
+    </aside>
+  </main>
+  <div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

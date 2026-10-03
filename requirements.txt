@@ -1,0 +1,5 @@
+-r requirements-gui.txt
+# Install a CUDA-compatible PyTorch build separately when using a GPU.
+torch==2.7.0
+torchvision==0.22.0
+ultralytics==8.4.118

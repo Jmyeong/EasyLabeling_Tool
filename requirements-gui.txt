@@ -1,0 +1,4 @@
+# GUI and CPU postprocessing. Versions validated in the original workspace.
+numpy==1.26.4
+Pillow==10.4.0
+opencv-python==4.10.0.84
